@@ -1,6 +1,6 @@
 game_name : "Pro Evolution Soccer 2008 SLES_549.13"
 gui:
-  face_type: ["Build", "Original", "Preset"]
+  face_type: ["Build", "DONT USE", "Preset"]
   skin_colour_max: 4
   face_id_max: 2048
   hair_id_max: 2047
