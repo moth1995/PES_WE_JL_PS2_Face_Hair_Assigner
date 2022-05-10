@@ -1,7 +1,7 @@
 from .utils import zero_fill_right_shift
 
 class Stat:
-    def __init__(self, data, offset, shift, mask, name):
+    def __init__(self, data:bytearray, offset:int, shift:int, mask:int, name:str):
         self.data = data
         self.offset = offset
         self.shift = shift
