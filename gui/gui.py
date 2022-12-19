@@ -6,6 +6,7 @@ from editor import Player, Stat
 from tkinter import Tk, messagebox, ttk, Button, Label, Menu, Spinbox, filedialog, IntVar
 from pathlib import Path
 from .config import Config
+from pymem.ptypes import RemotePointer
 
 class Gui(Tk):
     filename = ""
@@ -108,6 +109,11 @@ class Gui(Tk):
         self.face_id_spb.config(to=self.my_config.gui["face_id_max"])
         self.hair_id_spb.config(to=self.my_config.gui["hair_id_max"])
         self.player_edit_mode = self.my_config.player_edit_mode
+
+        self.platform = self.my_config.platform
+        self.psp_pointer = self.my_config.psp_pointer
+        self.psp_offset = self.my_config.psp_offset
+
         try:
             if self.my_config.gui["pes2014_sh_2"]:
                 self.sh2_cb.config(state='active')
@@ -121,7 +127,10 @@ class Gui(Tk):
             self.read_player()
 
     def get_by_process_name(self):
-        PROCNAME = "pcsx2.exe"
+        if self.platform == 0:
+            PROCNAME = "pcsx2.exe"
+        else:
+            PROCNAME = "PPSSPPWindows64.exe"
         for proc in psutil.process_iter():
             if proc.name() == PROCNAME:
                 self.filename = proc.name()
@@ -143,12 +152,23 @@ class Gui(Tk):
             If we lay here it is pcsx2 emulator
             """
             return True
+        elif Path(self.filename).name == "PPSSPPWindows64.exe":
+            return True
+
         else:
             """
             We shouldn't be here
             """
             messagebox.showerror(title=self.appname,message="Emulator Version")
             return 0
+
+    def getPointerAddress(self, base, offsets):
+        remote_pointer = RemotePointer(self.pm.process_handle, base)
+        for offset in offsets:
+            if offset != offsets[-1]:
+                remote_pointer = RemotePointer(self.pm.process_handle, remote_pointer.value + offset)
+            else:
+                return remote_pointer.value + offset
 
     def load_data(self):
         if self.check_version()==0:
@@ -157,8 +177,12 @@ class Gui(Tk):
         self.player_bytes_size = 124
         try:
             self.pm = pymem.Pymem(self.pes_we_exe)
-            self.client = pymem.process.module_from_name(self.pm.process_handle, self.pes_we_exe).lpBaseOfDll
-            self.player_edit_mode = self.my_config.player_edit_mode  - self.client
+            if self.platform == 0:
+                self.client = pymem.process.module_from_name(self.pm.process_handle, self.pes_we_exe).lpBaseOfDll
+                self.player_edit_mode = self.my_config.player_edit_mode  - self.client
+            else:
+                self.player_edit_mode = self.getPointerAddress(self.pm.base_address + self.psp_pointer, offsets=self.psp_offset)
+
         except pymem.exception.ProcessNotFound as e:
             messagebox.showerror(title=self.appname, message=f"pymem error code {e}")
             return 0
@@ -168,7 +192,11 @@ class Gui(Tk):
             messagebox.showerror(title=self.appname, message="You must select your exe file first or run your game\nbefore trying to read or set any data")
             return 0
         try:
-            self.player = Player(bytearray(self.pm.read_bytes(self.client + self.player_edit_mode, self.player_bytes_size)), self.my_config)
+            if self.platform == 0:
+                self.player = Player(bytearray(self.pm.read_bytes(self.client + self.player_edit_mode, self.player_bytes_size)), self.my_config)
+            else:
+                self.player = Player(bytearray(self.pm.read_bytes(self.player_edit_mode, self.player_bytes_size)), self.my_config)
+
         except pymem.exception.MemoryReadError as e:
             messagebox.showerror(title=self.appname, message=f"pymem error code {e}")
             return 0
@@ -274,7 +302,11 @@ class Gui(Tk):
 
         # Here we set the values to memory
         try:
-            self.pm.write_bytes(self.client + self.player_edit_mode,bytes(self.player.data),self.player_bytes_size)
+            if self.platform == 0:
+                self.pm.write_bytes(self.client + self.player_edit_mode,bytes(self.player.data),self.player_bytes_size)
+            else:
+                self.pm.write_bytes(self.player_edit_mode,bytes(self.player.data),self.player_bytes_size)
+
         except pymem.exception.MemoryWriteError as e:
             messagebox.showerror(title=self.appname, message=f"pymem error code {e}")
         except pymem.exception.ProcessError as e:
