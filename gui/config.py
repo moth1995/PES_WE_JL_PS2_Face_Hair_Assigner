@@ -17,6 +17,16 @@ class Config:
         self.player_edit_mode = self.file["player_edit_mode"]
         self.player = self.file["player"]
 
+
+        try:
+            self.platform = self.file["platform"]
+            self.psp_pointer = self.file["psp_pointer"]
+            self.psp_offset = self.file["psp_offset"]
+        except:
+            self.platform = 0
+            self.psp_pointer = 0
+            self.psp_offset = []
+
     def get_config_files(self):
         self.filelist = []
         self.games_config = []
