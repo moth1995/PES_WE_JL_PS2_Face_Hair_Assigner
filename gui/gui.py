@@ -2,6 +2,9 @@ import pymem
 import pymem.process
 import pymem.exception
 import psutil
+import struct
+import ctypes
+from ctypes import wintypes
 from editor import Player, Stat
 from tkinter import Tk, messagebox, ttk, Button, Label, Menu, Spinbox, filedialog, IntVar
 from pathlib import Path
@@ -11,6 +14,14 @@ from pymem.ptypes import RemotePointer
 class Gui(Tk):
     filename = ""
     appname='PES/WE/JL PS2 Face/Hair assigner'
+    PCSX2_PROCESS_NAMES = {
+        "pcsx2.exe",
+        "pcsx2-qt.exe",
+        "pcsx2-qt-avx2.exe",
+        "pcsx2-avx2.exe",
+        "pcsx2-sse4.exe",
+    }
+    PPSSPP_PROCESS_NAMES = {"ppssppwindows64.exe", "ppssppwindows.exe"}
     def __init__(self):
         super().__init__()
         #self.master = master
@@ -31,6 +42,8 @@ class Gui(Tk):
         except FileNotFoundError as e:
             messagebox.showerror(title=self.appname, message=f"No config files found code error {e}")
             self.destroy()
+            return
+        self.apply_config()
         self.my_menu=Menu(self)
         self.config(menu=self.my_menu)
         self.file_menu = Menu(self.my_menu, tearoff=0)
@@ -102,17 +115,19 @@ class Gui(Tk):
         self.my_config = Config(file)
         self.refresh_gui()
 
+    def apply_config(self):
+        self.player_edit_mode = self.my_config.player_edit_mode
+        self.platform = self.my_config.platform
+        self.psp_pointer = self.my_config.psp_pointer
+        self.psp_offset = self.my_config.psp_offset
+
     def refresh_gui(self):
         self.game_ver_lbl.config(text=f"Game version: {self.my_config.game_name}")
         self.face_type_dropdown.config(values=self.my_config.gui["face_type"])
         self.skin_spb.config(to=self.my_config.gui["skin_colour_max"])
         self.face_id_spb.config(to=self.my_config.gui["face_id_max"])
         self.hair_id_spb.config(to=self.my_config.gui["hair_id_max"])
-        self.player_edit_mode = self.my_config.player_edit_mode
-
-        self.platform = self.my_config.platform
-        self.psp_pointer = self.my_config.psp_pointer
-        self.psp_offset = self.my_config.psp_offset
+        self.apply_config()
 
         try:
             if self.my_config.gui["pes2014_sh_2"]:
@@ -123,19 +138,33 @@ class Gui(Tk):
     def search_exe(self):
         self.filename = filedialog.askopenfilename(initialdir=".",title=self.appname, filetypes=([("PCSX2 Executable", ".exe"),]))
         if self.filename!="":
-            self.load_data()
-            self.read_player()
+            if self.load_data():
+                self.read_player()
 
     def get_by_process_name(self):
         if self.platform == 0:
-            PROCNAME = "pcsx2.exe"
+            valid_processes = self.PCSX2_PROCESS_NAMES
         else:
-            PROCNAME = "PPSSPPWindows64.exe"
-        for proc in psutil.process_iter():
-            if proc.name() == PROCNAME:
-                self.filename = proc.name()
-                self.load_data()
-                self.read_player()
+            valid_processes = self.PPSSPP_PROCESS_NAMES
+
+        for proc in psutil.process_iter(["name", "exe"]):
+            try:
+                process_name = proc.info["name"]
+                if process_name and process_name.casefold() in valid_processes:
+                    # Prefer the full executable path when psutil can provide it;
+                    # otherwise its process name is still enough for pymem.
+                    self.filename = proc.info["exe"] or process_name
+                    if self.load_data():
+                        self.read_player()
+                    return
+            except (psutil.AccessDenied, psutil.NoSuchProcess):
+                continue
+
+        emulator = "PCSX2" if self.platform == 0 else "PPSSPP"
+        messagebox.showerror(
+            title=self.appname,
+            message=f"No compatible {emulator} process was found. Start the emulator and its game first.",
+        )
 
     def show_help(self):
         messagebox.showinfo(title=self.appname,message=
@@ -147,12 +176,13 @@ class Gui(Tk):
         messagebox.showinfo(title=self.appname,message="Developed by PES Indie")
 
     def check_version(self):
-        if Path(self.filename).name == "pcsx2.exe":
+        executable_name = Path(self.filename).name.casefold()
+        if executable_name in self.PCSX2_PROCESS_NAMES:
             """
             If we lay here it is pcsx2 emulator
             """
             return True
-        elif Path(self.filename).name == "PPSSPPWindows64.exe":
+        elif executable_name in self.PPSSPP_PROCESS_NAMES:
             return True
 
         else:
@@ -170,6 +200,120 @@ class Gui(Tk):
             else:
                 return remote_pointer.value + offset
 
+    @staticmethod
+    def get_export_rva(executable, export_name):
+        """Return an exported PE symbol RVA without requiring an extra package.
+
+        Modern 64-bit PCSX2 randomizes the location of its EE RAM but exports an
+        ``EEmem`` pointer from its executable.  The RVA is constant for the
+        running executable; adding it to the remote module base locates the
+        exported pointer in the target process.
+        """
+        with open(executable, "rb") as file:
+            image = file.read()
+
+        pe_offset = struct.unpack_from("<I", image, 0x3C)[0]
+        if image[pe_offset:pe_offset + 4] != b"PE\0\0":
+            raise ValueError("not a PE executable")
+
+        section_count = struct.unpack_from("<H", image, pe_offset + 6)[0]
+        optional_offset = pe_offset + 24
+        optional_magic = struct.unpack_from("<H", image, optional_offset)[0]
+        if optional_magic == 0x10B:
+            data_directory_offset = optional_offset + 96
+            pointer_size = 4
+        elif optional_magic == 0x20B:
+            data_directory_offset = optional_offset + 112
+            pointer_size = 8
+        else:
+            raise ValueError("unsupported PE optional header")
+
+        export_rva = struct.unpack_from("<I", image, data_directory_offset)[0]
+        if not export_rva:
+            raise ValueError("executable has no exports")
+
+        section_offset = optional_offset + struct.unpack_from("<H", image, pe_offset + 20)[0]
+        sections = []
+        for index in range(section_count):
+            offset = section_offset + index * 40
+            virtual_size, virtual_address, raw_size, raw_offset = struct.unpack_from("<IIII", image, offset + 8)
+            sections.append((virtual_address, max(virtual_size, raw_size), raw_offset))
+
+        def rva_to_offset(rva):
+            for virtual_address, size, raw_offset in sections:
+                if virtual_address <= rva < virtual_address + size:
+                    return raw_offset + rva - virtual_address
+            # Headers are stored at their RVA too.
+            if rva < len(image):
+                return rva
+            raise ValueError("RVA outside executable")
+
+        export_offset = rva_to_offset(export_rva)
+        name_count = struct.unpack_from("<I", image, export_offset + 24)[0]
+        functions_rva = struct.unpack_from("<I", image, export_offset + 28)[0]
+        names_rva = struct.unpack_from("<I", image, export_offset + 32)[0]
+        ordinals_rva = struct.unpack_from("<I", image, export_offset + 36)[0]
+        for index in range(name_count):
+            name_rva = struct.unpack_from("<I", image, rva_to_offset(names_rva) + index * 4)[0]
+            name_offset = rva_to_offset(name_rva)
+            end = image.index(b"\0", name_offset)
+            if image[name_offset:end].decode("ascii") == export_name:
+                ordinal = struct.unpack_from("<H", image, rva_to_offset(ordinals_rva) + index * 2)[0]
+                return struct.unpack_from("<I", image, rva_to_offset(functions_rva) + ordinal * 4)[0], pointer_size
+        raise ValueError(f"export {export_name} not found")
+
+    def get_pcsx2_player_address(self):
+        """Resolve the configured PS2 address in PCSX2's current EE RAM mapping."""
+        # PS2 physical RAM is mirrored at 0x20000000 in the older configuration
+        # files.  Only its lower 29 bits are an offset inside the 32 MiB EE RAM.
+        guest_offset = self.my_config.player_edit_mode & 0x1FFFFFFF
+        try:
+            export_rva, pointer_size = self.get_export_rva(self.filename, "EEmem")
+            ee_memory_base = int.from_bytes(
+                self.pm.read_bytes(self.client + export_rva, pointer_size),
+                byteorder="little",
+            )
+            if ee_memory_base:
+                return ee_memory_base + guest_offset
+        except (OSError, ValueError, struct.error, pymem.exception.MemoryReadError):
+            # PCSX2 <= 1.6 used the fixed mapping. Keep it for compatibility.
+            pass
+        return self.my_config.player_edit_mode
+
+    def get_ppsspp_memory_base(self):
+        """Return PPSSPP's current emulated PSP memory base (PPSSPP 1.15+)."""
+        # PPSSPP documents WM_APP + 0x3118 as the supported way to retrieve
+        # this dynamic address.  The low and high 32-bit halves are returned
+        # separately, so it also works with a 64-bit PPSSPP process.
+        user32 = ctypes.WinDLL("user32", use_last_error=True)
+        user32.FindWindowW.argtypes = (wintypes.LPCWSTR, wintypes.LPCWSTR)
+        user32.FindWindowW.restype = wintypes.HWND
+        user32.GetWindowThreadProcessId.argtypes = (wintypes.HWND, ctypes.POINTER(wintypes.DWORD))
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        user32.SendMessageW.argtypes = (wintypes.HWND, wintypes.UINT, wintypes.WPARAM, wintypes.LPARAM)
+        user32.SendMessageW.restype = wintypes.LPARAM
+        window = user32.FindWindowW("PPSSPPWnd", None)
+        if not window:
+            raise OSError("PPSSPP main window was not found")
+
+        process_id = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(window, ctypes.byref(process_id))
+        if process_id.value != self.pm.process_id:
+            raise OSError("the PPSSPP window does not belong to the selected process")
+
+        message = 0xB118  # WM_APP + 0x3118
+        lower = user32.SendMessageW(window, message, 0, 0) & 0xFFFFFFFF
+        upper = user32.SendMessageW(window, message, 0, 1) & 0xFFFFFFFF
+        memory_base = lower | (upper << 32)
+        if not memory_base:
+            raise OSError("PPSSPP has not initialized PSP memory; start the game first")
+        return memory_base
+
+    def get_ppsspp_player_address(self):
+        if len(self.psp_offset) != 1:
+            raise ValueError("this PPSSPP configuration requires one PSP address")
+        return self.get_ppsspp_memory_base() + self.psp_offset[0]
+
     def load_data(self):
         if self.check_version()==0:
             return 0
@@ -179,12 +323,16 @@ class Gui(Tk):
             self.pm = pymem.Pymem(self.pes_we_exe)
             if self.platform == 0:
                 self.client = pymem.process.module_from_name(self.pm.process_handle, self.pes_we_exe).lpBaseOfDll
-                self.player_edit_mode = self.my_config.player_edit_mode  - self.client
+                self.player_edit_mode = self.get_pcsx2_player_address()
             else:
-                self.player_edit_mode = self.getPointerAddress(self.pm.base_address + self.psp_pointer, offsets=self.psp_offset)
+                self.player_edit_mode = self.get_ppsspp_player_address()
+            return True
 
         except pymem.exception.ProcessNotFound as e:
             messagebox.showerror(title=self.appname, message=f"pymem error code {e}")
+            return 0
+        except (OSError, ValueError) as e:
+            messagebox.showerror(title=self.appname, message=f"Could not locate emulator memory: {e}")
             return 0
 
     def read_player(self):
@@ -193,7 +341,7 @@ class Gui(Tk):
             return 0
         try:
             if self.platform == 0:
-                self.player = Player(bytearray(self.pm.read_bytes(self.client + self.player_edit_mode, self.player_bytes_size)), self.my_config)
+                self.player = Player(bytearray(self.pm.read_bytes(self.player_edit_mode, self.player_bytes_size)), self.my_config)
             else:
                 self.player = Player(bytearray(self.pm.read_bytes(self.player_edit_mode, self.player_bytes_size)), self.my_config)
 
@@ -303,7 +451,7 @@ class Gui(Tk):
         # Here we set the values to memory
         try:
             if self.platform == 0:
-                self.pm.write_bytes(self.client + self.player_edit_mode,bytes(self.player.data),self.player_bytes_size)
+                self.pm.write_bytes(self.player_edit_mode,bytes(self.player.data),self.player_bytes_size)
             else:
                 self.pm.write_bytes(self.player_edit_mode,bytes(self.player.data),self.player_bytes_size)
 
