@@ -1,11 +1,11 @@
-game_name : "Winning Eleven 10"
+game_name : "Pro Evolution Soccer 2009 SLES_554.06"
 gui:
-  face_type: ["Build", "Original", "Preset"]
+  face_type: ["Build", "DONT USE", "Preset"]
   skin_colour_max: 4
-  face_id_max: 512
+  face_id_max: 2048
   hair_id_max: 2047
 # You can get this offset with cheat engine
-player_edit_mode : 550295972
+player_edit_mode : 0x20D303F4
 player:
   face_type:
     offset: 103
@@ -18,7 +18,7 @@ player:
   face_id:
     offset: 101
     shift: 5
-    mask: 511
+    mask: 2047
   hair_id:
     offset: 93
     shift: 0

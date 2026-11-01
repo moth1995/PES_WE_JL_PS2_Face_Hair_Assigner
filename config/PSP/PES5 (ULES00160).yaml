@@ -1,0 +1,30 @@
+game_name : "Pro Evolution Soccer 5 ULES00160"
+gui:
+  face_type: ["Build", "Original", "Preset"]
+  skin_colour_max: 4
+  face_id_max: 512
+  hair_id_max: 2047
+# You can get this offset with cheat engine if your values is in hex (base 16) please write it as it follows 
+#ie if in cheat engine you have 20BC just put 0x before the value 0x20BC, if your value is decimal (base 10) just write the number
+
+player_edit_mode : 0x0
+platform : 1
+psp_offset : [0x0907E610]
+psp_pointer : 0
+player:
+  face_type:
+    offset: 108
+    shift: 2
+    mask: 3
+  skin_colour:
+    offset: 91
+    shift: 1
+    mask: 3
+  face_id:
+    offset: 101
+    shift: 3
+    mask: 511
+  hair_id:
+    offset: 93
+    shift: 0
+    mask: 2047

@@ -10,7 +10,7 @@ class Config:
         self.get_config_files()
 
     def load_config(self):
-        with open(self.config_dir + "/" +self.file) as stream:
+        with open(Path(self.config_dir) / self.file) as stream:
             self.file = yaml.safe_load(stream)
         self.game_name = self.file["game_name"]
         self.gui = self.file["gui"]
@@ -30,7 +30,15 @@ class Config:
     def get_config_files(self):
         self.filelist = []
         self.games_config = []
-        for p in Path(self.config_dir).iterdir():
-            if p.is_file():
-                self.filelist.append(p.name)
-                self.games_config.append(p.stem)
+        self.games_by_platform = {}
+        config_root = Path(self.config_dir)
+        for path in sorted(config_root.rglob("*.yaml")):
+            if path.name.casefold() == "default.yaml":
+                continue
+
+            relative_path = path.relative_to(config_root)
+            platform = relative_path.parts[0] if len(relative_path.parts) > 1 else "PS2"
+            self.games_by_platform.setdefault(platform, []).append((path.stem, str(relative_path)))
+            self.filelist.append(str(relative_path))
+            self.games_config.append(path.stem)
+

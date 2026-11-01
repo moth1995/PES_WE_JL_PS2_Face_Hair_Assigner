@@ -1,16 +1,14 @@
-game_name : "Pro Evolution Soccer 2014 ULES01598"
+game_name : "Pro Evolution Soccer 2013 ULES01580"
 gui:
   face_type: ["Build", "Original", "Preset"]
   skin_colour_max: 6
   face_id_max: 2048
   hair_id_max: 2047
   pes2014_sh_2: True
-# You can get this offset with cheat engine
-#0x1FE771B637C #
-player_edit_mode : 0x260CC986D8C
+player_edit_mode : 0x0
 platform : 1
-psp_offset : [0x929639C]
-psp_pointer : 0xDEA130
+psp_offset : [0x092938B4]
+psp_pointer : 0
 player:
   face_type:
     offset: 103

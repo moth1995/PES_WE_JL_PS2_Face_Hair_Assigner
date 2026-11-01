@@ -1,0 +1,32 @@
+game_name : "Pro Evolution Soccer 2012 ULES01542"
+gui:
+  face_type: ["Build", "Original", "Preset"]
+  skin_colour_max: 6
+  face_id_max: 2048
+  hair_id_max: 2047
+  pes2014_sh_2: True
+player_edit_mode : 0x0
+platform : 1
+psp_offset : [0x09312A5C]
+psp_pointer : 0
+player:
+  face_type:
+    offset: 103
+    shift: 0
+    mask: 3
+  skin_colour:
+    offset: 116
+    shift: 0
+    mask: 7
+  face_id:
+    offset: 101
+    shift: 4
+    mask: 4095
+  hair_id:
+    offset: 93
+    shift: 0
+    mask: 2047
+  sh_2:
+    offset: 100
+    shift: 6
+    mask: 1

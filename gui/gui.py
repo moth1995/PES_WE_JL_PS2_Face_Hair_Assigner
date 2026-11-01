@@ -43,9 +43,14 @@ class Gui(Tk):
 
         self.my_menu.add_cascade(label="Edit", menu=self.edit_menu)
         self.edit_submenu = Menu(self.my_menu, tearoff=0)
-        # Dinamically loading game versions as sub menu
-        for i in range(len(self.my_config.games_config)):
-            self.edit_submenu.add_command(label=self.my_config.games_config[i],command= lambda i=i: self.change_config(self.my_config.filelist[i]))
+        for platform, games in sorted(self.my_config.games_by_platform.items()):
+            platform_menu = Menu(self.edit_submenu, tearoff=0)
+            for game_name, config_file in games:
+                platform_menu.add_command(
+                    label=game_name,
+                    command=lambda config_file=config_file: self.change_config(config_file),
+                )
+            self.edit_submenu.add_cascade(label=platform, menu=platform_menu)
         self.edit_menu.add_cascade(label="Game Version", menu=self.edit_submenu)
 
         self.my_menu.add_cascade(label="Help", menu=self.help_menu)
